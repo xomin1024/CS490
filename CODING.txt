@@ -1,0 +1,152 @@
+Phase#2
+// 1
+ >val df = spark.read.json("/Users/minxiong/Desktop/cs490Phase2/#6-#10/hunTweets.json")
+>df.select("user.id", "created_at").show
+
+// 2
+>df.select("user.id", "user.followers_count", "user.friends_count").orderBy("id").show
+
+
+//3 
+>df.filter("lang = 'en'").select($"id", $"user.id".as("user_id")).show
+
+//4
+val hashtag_count = df.select("entities.hashtags.text").withColumn("hashtags", explode(col("text")) ).groupBy("hashtags").agg(count("hashtags") as "cnt")
+hashtag_count.show
+
+//5
+df.select("entities.urls").withColumn("url", explode(col("urls"))).groupBy("url").agg(count("url").as("cnt")).sort(desc("cnt")).show
+
+
+
+//6
+df.select($"entities.hashtags.indices".as("hashtagIndices")).withColumn("hashtagIndices", explode($"hashtagIndices")).createOrReplaceTempView("indices")
+val res = spark.sql("select hashtagIndices[0] as startIndices FROM indices ORDER BY startIndices ASC")
+res.show(100)
+
+
+//7
+val df = spark.read.json("/Users/minxiong/Desktop/cs490Phase2/#6-#10/hunTweets.json")
+df.createOrReplaceTempView("tweets")
+spark.sql("select * from tweets where favorited = false").groupBy("user.time_zone").agg(avg($"user.followers_count")).show
+
+
+//8
+val df = spark.read.json("/Users/minxiong/Desktop/cs490Phase2/#6-#10/hunTweets.json")
+  df.createOrReplaceTempView("tweets")
+  spark.sql("select * from tweets where retweeted = false and user.verified = false").groupBy("user.time_zone").agg(avg($"user.friends_count")).show
+
+//9
+val df = spark.read.json("/Users/minxiong/Desktop/cs490Phase2/#6-#10/Tweets.json")   
+df.createOrReplaceTempView("tweets")
+val x = spark.sql("select user.id,user.time_zone from tweets where user.lang = 'en'")
+val y = spark.sql("select user.id,user.time_zone from tweets where user.verified = true") 
+x.createOrReplaceTempView("LT")
+y.createOrReplaceTempView("RT")
+val JoinRes = spark.sql("select LT.id, RT.id from LT INNER JOIN RT where LT.time_zone = RT.time_zone")
+JoinRes.show
+
+
+
+//10
+df.createOrReplaceTempView("tweets")
+val X = spark.sql("SELECT entities.hashtags.text FROM tweets WHERE user.time_zone = 'Pacific Time (US & Canada)'") 
+X.show(30)  
+    
+val Y = spark.sql("select entities.hashtags.text from tweets where user.time_zone = 'Eastern Time (US & Canada)'")
+Y.show(30)
+    X.createOrReplaceTempView("LT")
+    Y.createOrReplaceTempView("RT")
+    val JoinRes = spark.sql("select LT.text as Hashtag1,RT.text as Hashtag2 from LT ,RT where LT.text = RT.text")
+    
+    JoinRes.show(30)
+
+
+//11
+val df = spark.read.json("/Users/minxiong/Desktop/cs490Phase2/#6-#10/hunTweets.json")
+df.createOrReplaceTempView("tweets")
+val X = spark.sql("select user.id,user.location,user.lang,user.friends_count,user.followers_count from tweets"_)
+X.show()
+X.createOrReplaceTempView("ST")
+ spark.sql("SELECT id, location, AVG(friends_count) OVER( PARTITION BY 1) AS AVG_frnd_cnt, AVG(followers_count) OVER (PARTITION BY 1) AS avg_fol_cnt  FROM ST WHERE lang !='en'").show()
+
+
+//12
+val df = spark.read.json("/Users/minxiong/Desktop/cs490Phase2/#6-#10/hunTweets.json")
+
+case class X(id: Long, location: String, lang: String, friends_count:Long, followers_count:Long)
+
+val n12_ds =  n12.as[X]
+
+n12_ds.show
+
+case class IdLoc(id:Long, location:String)
+
+val idloc_ds = n12_ds.filter(_.followers_count > 10).map( r=> IdLoc(r.id, r.location))
+
+idloc_ds.show
+
+
+
+//13
+case class X(id: Long, location: String, lang: String, friends_count:Long, followers_count:Long)
+
+val n12_ds =  n12.as[X]
+
+n12_ds.show
+
+val lang_max_friend = n12_ds.groupBy("lang").agg(max("friends_count")).as[(String, Long)]
+
+case class IdLocMFrnd(id:Long, location:String, maxFriendsCount:Long)
+
+val n13out = n12_ds.join(lang_max_friend, "lang").select($"id", $"location", $"max(friends_count)" as "maxFriendsCount").as[IdLocMFrnd]
+
+n13out.show
+
+
+
+//14
+df.createOrReplaceTempView("tweets")
+ val X = spark.sql("select user.id as user_id, user.location,user.lang,user.friends_count,user.followers_count from tweets")
+X.show
+ val Y = df.filter("user.verified = true").select($"user.id")
+Y.show
+ X.createOrReplaceTempView("LT")
+ Y.createOrReplaceTempView("RT")
+
+val z = spark.sql("SELECT * FROM LT WHERE NOT EXISTS (SELECT 1 from RT WHERE LT.user_id = RT.id)")
+z.show
+
+
+
+//15
+case class UserLocLang(user_id:Long, location: String, lang: String)
+case class UserFriendCount(id:Long, friends_count:Long)
+val X = df.select($"user.id" as "user_id", $"user.location",$"user.lang").as[UserLocLang]
+X.show
+val Y = df.filter("user.verified = false").select($"user.id", $"user.friends_count").as[UserFriendCount]
+Y.show
+val z = spark.sql("SELECT * FROM X WHERE EXISTS (SELECT 1 from Y WHERE X.user_id = Y.id AND Y.friends_count > 10)").as[UserLocLang]
+z.show
+
+
+
+//phase#3
+
+// 1.show unique users who are tweeting in a differnt language than their profile language
+df.select($"lang" as "tweet_lang", $"user.lang" as "user_lang", $"user.id" as "user_id").filter("tweet_lang != user_lang").select("user_id","tweet_lang","user_lang").distinct.show
+
+//2.number  Unique users 
+df.select($"lang" as "tweet_lang", $"user.lang" as "user_lang", $"user.id" as "user_id").filter("tweet_lang != user_lang").select("user_id").distinct.count
+
+//3.retrieve 100 tweets through bash
+cat tweets.json | head -101 | tail -100 > hunTweets.json 
+
+//4.Validate JSON file
+https://jsonlint.com/
+
+//5.Transfer JSON TO CASECLASS
+https://json2caseclass.cleverapps.io/
+
+
+
